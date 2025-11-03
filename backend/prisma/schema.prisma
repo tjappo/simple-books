@@ -1,0 +1,228 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String   @id @default(uuid())
+  auth0Id   String   @unique
+  email     String   @unique
+  name      String?
+  picture   String?
+
+  company          Company?
+  invoices         Invoice[]
+  vatDeclarations  VatDeclaration[]
+  vatConfiguration VatConfiguration?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("users")
+}
+
+model Company {
+  id          String   @id @default(uuid())
+  userId      String   @unique
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  name        String   // Company name
+  kvk         String   // KvK nummer
+  btw         String   // BTW-nummer
+  iban        String   // Bank account
+  address     String   // Company address
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("companies")
+}
+
+enum InvoiceType {
+  SALES
+  PURCHASE
+}
+
+enum PaymentStatus {
+  PAID
+  UNPAID
+  OVERDUE
+  PARTIALLY_PAID
+}
+
+enum VatCategory {
+  DOMESTIC_HIGH        // 21% - Box 1a
+  DOMESTIC_LOW         // 9% - Box 1b
+  DOMESTIC_OTHER       // Other NL rates - Box 1c
+  ZERO                 // 0% - Box 1e
+  EXPORT_NON_EU        // Export outside EU - Box 3a
+  IC_SUPPLY            // Intra-community supply - Box 3b
+  IC_DISTANCE_SALES    // Distance sales EU - Box 3c
+  REVERSE_CHARGE_NL    // Reverse charge NL - Box 2a
+  REVERSE_CHARGE_EU    // EU acquisition - Box 4b
+  IMPORT_NON_EU        // Import/Art 23 - Box 4a
+  OTHER_FOREIGN        // Other foreign - Box 4c
+}
+
+enum ReverseChargeLocation {
+  EU
+  NON_EU
+}
+
+enum InvoiceStatus {
+  POSTED
+  VOID
+}
+
+enum DeclarationStatus {
+  DRAFT
+  SUBMITTED
+  FINAL
+}
+
+model Invoice {
+  id              String          @id @default(uuid())
+  userId          String
+  user            User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Header fields
+  type            InvoiceType
+  counterparty    String          // Supplier or Customer name
+  invoiceNumber   String
+  issueDate       DateTime
+  dueDate         DateTime
+  currency        String          @default("EUR")
+  paymentStatus   PaymentStatus   @default(UNPAID)
+  status          InvoiceStatus   @default(POSTED)
+
+  // File attachment
+  attachmentPath  String?         // Path to uploaded PDF/JPG/PNG
+
+  // VAT declaration tracking
+  processedInVatDeclarationId String?
+  processedInVatDeclaration   VatDeclaration? @relation(fields: [processedInVatDeclarationId], references: [id], onDelete: SetNull)
+
+  // Line items
+  lineItems       InvoiceLineItem[]
+
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  @@map("invoices")
+  @@index([userId])
+  @@index([userId, status])
+  @@index([issueDate])
+  @@index([processedInVatDeclarationId])
+}
+
+model InvoiceLineItem {
+  id                    String                  @id @default(uuid())
+  invoiceId             String
+  invoice               Invoice                 @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  description           String
+  quantity              Float                   @default(1)
+  unitPrice             Float
+  vatRate               Float                   // VAT rate as decimal (e.g., 0.21 for 21%)
+  subtotal              Float                   // Quantity * unitPrice
+  vatAmount             Float                   // Subtotal * vatRate
+  total                 Float                   // Subtotal + vatAmount
+
+  // VAT Declaration fields
+  vatCategory           VatCategory             @default(DOMESTIC_HIGH)
+  isDeductible          Boolean                 @default(true)
+  reverseCharge         Boolean                 @default(false)
+  reverseChargeLocation ReverseChargeLocation?
+  reverseChargeNote     String?
+
+  createdAt             DateTime                @default(now())
+  updatedAt             DateTime                @updatedAt
+
+  @@map("invoice_line_items")
+  @@index([invoiceId])
+  @@index([vatCategory])
+}
+
+model VatDeclaration {
+  id            String            @id @default(uuid())
+  userId        String
+  user          User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  period        String            // "2025-Q1" or "2025-01"
+  periodType    String            // "MONTHLY" or "QUARTERLY"
+  startDate     DateTime
+  endDate       DateTime
+
+  // Invoices processed in this declaration
+  processedInvoices Invoice[]
+
+  // Rubriek 1 - Binnenland
+  box1a_base    Float             @default(0)
+  box1a_vat     Float             @default(0)
+  box1b_base    Float             @default(0)
+  box1b_vat     Float             @default(0)
+  box1c_base    Float?
+  box1c_vat     Float?
+  box1d_vat     Float?            // Private use (manual)
+  box1e_base    Float             @default(0)
+
+  // Rubriek 2 - Verlegging binnenland
+  box2a_base    Float             @default(0)
+  box2a_vat     Float             @default(0)
+  box2b_base    Float?
+
+  // Rubriek 3 - Buitenland
+  box3a_base    Float             @default(0)
+  box3b_base    Float             @default(0)
+  box3c_base    Float?
+
+  // Rubriek 4 - Import/acquisitions
+  box4a_base    Float             @default(0)
+  box4a_vat     Float             @default(0)
+  box4b_base    Float             @default(0)
+  box4b_vat     Float             @default(0)
+  box4c_base    Float?
+  box4c_vat     Float?
+
+  // Rubriek 5 - Totals
+  box5a         Float             @default(0)  // Total VAT due
+  box5b         Float             @default(0)  // Deductible VAT
+  box5d         Float             @default(0)  // To pay/refund
+
+  status        DeclarationStatus @default(DRAFT)
+  notes         String?
+
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+
+  @@map("vat_declarations")
+  @@unique([userId, period])
+  @@index([userId])
+  @@index([startDate, endDate])
+}
+
+model VatConfiguration {
+  id                    String   @id @default(uuid())
+  userId                String   @unique
+  user                  User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  hasFullDeductionRight Boolean  @default(true)
+  horecaRule            Boolean  @default(false)  // Non-deductible horeca
+  privateUseEnabled     Boolean  @default(false)
+  customRates           String?  // JSON for box 1c variations
+
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  @@map("vat_configurations")
+}
