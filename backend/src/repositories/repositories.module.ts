@@ -5,6 +5,8 @@ import { CompanyRepository } from './company.repository';
 import { InvoiceRepository } from './invoice.repository';
 import { VatDeclarationRepository } from './vat-declaration.repository';
 import { VatConfigurationRepository } from './vat-configuration.repository';
+import { AssetRepository } from './asset.repository';
+import { CustomerRepository } from './customer.repository';
 
 const repositories = [
   UserRepository,
@@ -12,6 +14,8 @@ const repositories = [
   InvoiceRepository,
   VatDeclarationRepository,
   VatConfigurationRepository,
+  AssetRepository,
+  CustomerRepository,
 ];
 
 @Module({

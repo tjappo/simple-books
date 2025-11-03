@@ -17,7 +17,7 @@ import { CalculateDeclarationDto } from './dto/calculate-declaration.dto';
 import { UpdateDeclarationDto } from './dto/update-declaration.dto';
 import { UsersService } from '../users/users.service';
 
-@Controller('api/vat-declaration')
+@Controller('vat-declaration')
 @UseGuards(OidcAuthGuard)
 export class VatDeclarationController {
   constructor(

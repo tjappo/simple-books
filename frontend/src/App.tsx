@@ -8,6 +8,10 @@ import { Dashboard } from './pages/Dashboard';
 import { Profile } from './pages/Profile';
 import { Invoices } from './pages/Invoices';
 import { VatDeclaration } from './pages/VatDeclaration';
+import { ProfitLoss } from './pages/ProfitLoss';
+import { Assets } from './pages/Assets';
+import BalanceSheet from './pages/BalanceSheet';
+import { Customers } from './pages/Customers';
 import CompanyOnboarding from './pages/CompanyOnboarding';
 
 function App() {
@@ -62,6 +66,46 @@ function App() {
                 <ProtectedRoute>
                   <OnboardingRedirect>
                     <VatDeclaration />
+                  </OnboardingRedirect>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/profit-loss"
+              element={
+                <ProtectedRoute>
+                  <OnboardingRedirect>
+                    <ProfitLoss />
+                  </OnboardingRedirect>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/assets"
+              element={
+                <ProtectedRoute>
+                  <OnboardingRedirect>
+                    <Assets />
+                  </OnboardingRedirect>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/balance-sheet"
+              element={
+                <ProtectedRoute>
+                  <OnboardingRedirect>
+                    <BalanceSheet />
+                  </OnboardingRedirect>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/customers"
+              element={
+                <ProtectedRoute>
+                  <OnboardingRedirect>
+                    <Customers />
                   </OnboardingRedirect>
                 </ProtectedRoute>
               }

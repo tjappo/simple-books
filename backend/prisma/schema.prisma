@@ -24,6 +24,8 @@ model User {
   invoices         Invoice[]
   vatDeclarations  VatDeclaration[]
   vatConfiguration VatConfiguration?
+  assets           Asset[]
+  customers        Customer[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -46,6 +48,35 @@ model Company {
   updatedAt   DateTime @updatedAt
 
   @@map("companies")
+}
+
+model Customer {
+  id        String       @id @default(uuid())
+  userId    String
+  user      User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  type      CustomerType // PERSONAL or BUSINESS
+  name      String       // Full name or company name
+  email     String
+  phone     String?
+  address   String       // Full address
+
+  // Business customer fields
+  kvk       String?      // KvK nummer (required for business)
+  btw       String?      // BTW/VAT nummer (optional for business)
+
+  invoices  Invoice[]
+
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+
+  @@map("customers")
+  @@index([userId])
+}
+
+enum CustomerType {
+  PERSONAL
+  BUSINESS
 }
 
 enum InvoiceType {
@@ -95,6 +126,10 @@ model Invoice {
   userId          String
   user            User            @relation(fields: [userId], references: [id], onDelete: Cascade)
 
+  // Customer link (for sales invoices)
+  customerId      String?
+  customer        Customer?       @relation(fields: [customerId], references: [id], onDelete: SetNull)
+
   // Header fields
   type            InvoiceType
   counterparty    String          // Supplier or Customer name
@@ -114,6 +149,9 @@ model Invoice {
 
   // Line items
   lineItems       InvoiceLineItem[]
+
+  // Assets linked to this invoice
+  assets          Asset[]
 
   createdAt       DateTime        @default(now())
   updatedAt       DateTime        @updatedAt
@@ -141,6 +179,7 @@ model InvoiceLineItem {
   // VAT Declaration fields
   vatCategory           VatCategory             @default(DOMESTIC_HIGH)
   isDeductible          Boolean                 @default(true)
+  deductibilityPercentage Float                 @default(100) // Percentage of line item that is deductible (0-100)
   reverseCharge         Boolean                 @default(false)
   reverseChargeLocation ReverseChargeLocation?
   reverseChargeNote     String?
@@ -225,4 +264,57 @@ model VatConfiguration {
   updatedAt             DateTime @updatedAt
 
   @@map("vat_configurations")
+}
+
+enum DepreciationMethod {
+  STRAIGHT_LINE       // Linear depreciation
+  DECLINING_BALANCE   // Declining balance
+  UNITS_OF_PRODUCTION // Based on usage
+}
+
+enum AssetStatus {
+  ACTIVE
+  DISPOSED
+  SOLD
+  FULLY_DEPRECIATED
+}
+
+model Asset {
+  id                  String              @id @default(uuid())
+  userId              String
+  user                User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  name                String              // Asset name
+  description         String?             // Detailed description
+  category            String              // Category (e.g., "Computer", "Vehicle", "Equipment")
+
+  purchaseDate        DateTime            // Date of purchase
+  purchasePrice       Float               // Original purchase price
+
+  // Link to purchase invoice
+  invoiceId           String?
+  invoice             Invoice?            @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
+
+  depreciationMethod  DepreciationMethod  @default(STRAIGHT_LINE)
+  depreciationRate    Float               // Annual depreciation rate (percentage, e.g., 20 for 20%)
+  usefulLife          Int                 // Useful life in years
+  residualValue       Float               @default(0) // Salvage/residual value at end of life
+
+  currentBookValue    Float               // Current book value (updated periodically)
+  accumulatedDepreciation Float           @default(0) // Total depreciation accumulated
+
+  status              AssetStatus         @default(ACTIVE)
+  disposalDate        DateTime?           // Date when asset was disposed/sold
+  disposalPrice       Float?              // Sale price if sold
+
+  notes               String?             // Additional notes
+
+  createdAt           DateTime            @default(now())
+  updatedAt           DateTime            @updatedAt
+
+  @@map("assets")
+  @@index([userId])
+  @@index([status])
+  @@index([purchaseDate])
+  @@index([invoiceId])
 }

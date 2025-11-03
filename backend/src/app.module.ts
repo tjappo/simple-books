@@ -7,6 +7,10 @@ import { AuthModule } from './auth/auth.module';
 import { UsersModule } from './users/users.module';
 import { InvoicesModule } from './invoices/invoices.module';
 import { VatDeclarationModule } from './vat-declaration/vat-declaration.module';
+import { ProfitLossModule } from './profit-loss/profit-loss.module';
+import { AssetsModule } from './assets/assets.module';
+import { BalanceSheetModule } from './balance-sheet/balance-sheet.module';
+import { CustomersModule } from './customers/customers.module';
 
 @Module({
   imports: [
@@ -32,6 +36,10 @@ import { VatDeclarationModule } from './vat-declaration/vat-declaration.module';
     UsersModule,
     InvoicesModule,
     VatDeclarationModule,
+    ProfitLossModule,
+    AssetsModule,
+    BalanceSheetModule,
+    CustomersModule,
   ],
 })
 export class AppModule {}

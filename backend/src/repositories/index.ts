@@ -3,3 +3,5 @@ export * from './company.repository';
 export * from './invoice.repository';
 export * from './vat-declaration.repository';
 export * from './vat-configuration.repository';
+export * from './asset.repository';
+export * from './customer.repository';

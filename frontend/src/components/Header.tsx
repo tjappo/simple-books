@@ -29,6 +29,18 @@ export function Header() {
                 <Link to="/vat-declaration" className="text-gray-700 hover:text-gray-900">
                   BTW-aangifte
                 </Link>
+                <Link to="/profit-loss" className="text-gray-700 hover:text-gray-900">
+                  P&L
+                </Link>
+                <Link to="/assets" className="text-gray-700 hover:text-gray-900">
+                  Assets
+                </Link>
+                <Link to="/balance-sheet" className="text-gray-700 hover:text-gray-900">
+                  Balance Sheet
+                </Link>
+                <Link to="/customers" className="text-gray-700 hover:text-gray-900">
+                  Customers
+                </Link>
 
                 <DropdownMenu.Root>
                   <DropdownMenu.Trigger asChild>

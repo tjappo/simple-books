@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import * as Label from '@radix-ui/react-label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/Card';
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from '../components/Dialog';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '../components/Dialog';
 import { Button } from '../components/Button';
 import { Separator } from '../components/Separator';
 import axios from 'axios';
@@ -17,6 +17,7 @@ interface InvoiceLineItem {
   quantity: number;
   unitPrice: number;
   vatRate: number;
+  deductibilityPercentage?: number;
   reverseCharge?: boolean;
   reverseChargeLocation?: 'EU' | 'NON_EU';
   vatCategory?: string;
@@ -39,12 +40,27 @@ interface Invoice {
   createdAt: string;
 }
 
+interface Customer {
+  id: string;
+  type: 'PERSONAL' | 'BUSINESS';
+  name: string;
+  email: string;
+  phone?: string;
+  address: string;
+  kvk?: string;
+  btw?: string;
+}
+
 export function Invoices() {
   const [invoices, setInvoices] = useState<Invoice[]>([]);
+  const [customers, setCustomers] = useState<Customer[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [uploadDialogOpen, setUploadDialogOpen] = useState(false);
+  const [createSalesDialogOpen, setCreateSalesDialogOpen] = useState(false);
   const [filterType, setFilterType] = useState<'ALL' | 'SALES' | 'PURCHASE'>('ALL');
+  const [searchTerm, setSearchTerm] = useState('');
   const [editingInvoice, setEditingInvoice] = useState<Invoice | null>(null);
+  const [selectedCustomerId, setSelectedCustomerId] = useState<string>('');
 
   // Form state
   const [formData, setFormData] = useState({
@@ -58,7 +74,7 @@ export function Invoices() {
   });
 
   const [lineItems, setLineItems] = useState<InvoiceLineItem[]>([
-    { description: '', quantity: 1, unitPrice: 0, vatRate: 0.21, reverseCharge: false },
+    { description: '', quantity: 1, unitPrice: 0, vatRate: 0.21, deductibilityPercentage: 100, reverseCharge: false },
   ]);
 
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -68,6 +84,7 @@ export function Invoices() {
 
   useEffect(() => {
     fetchInvoices();
+    fetchCustomers();
   }, []);
 
   const fetchInvoices = async () => {
@@ -78,6 +95,15 @@ export function Invoices() {
       console.error('Error fetching invoices:', error);
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const fetchCustomers = async () => {
+    try {
+      const response = await axios.get('/api/customers');
+      setCustomers(response.data);
+    } catch (error) {
+      console.error('Error fetching customers:', error);
     }
   };
 
@@ -92,15 +118,16 @@ export function Invoices() {
     setLineItems(prev => {
       const updated = [...prev];
       if (field === 'description' || field === 'vatCategory' || field === 'reverseChargeLocation') {
-        updated[index] = { ...updated[index], [field]: value };
+        updated[index] = { ...updated[index], [field]: value as string };
       } else if (field === 'reverseCharge') {
         updated[index] = {
           ...updated[index],
-          [field]: value,
+          [field]: value as boolean,
           // Clear location if unchecking reverse charge
           ...(value === false && { reverseChargeLocation: undefined })
         };
       } else {
+        // quantity, unitPrice, vatRate, deductibilityPercentage
         updated[index] = { ...updated[index], [field]: parseFloat(value as string) || 0 };
       }
       return updated;
@@ -108,7 +135,7 @@ export function Invoices() {
   };
 
   const addLineItem = () => {
-    setLineItems(prev => [...prev, { description: '', quantity: 1, unitPrice: 0, vatRate: 0.21, reverseCharge: false }]);
+    setLineItems(prev => [...prev, { description: '', quantity: 1, unitPrice: 0, vatRate: 0.21, deductibilityPercentage: 100, reverseCharge: false }]);
   };
 
   const removeLineItem = (index: number) => {
@@ -195,6 +222,11 @@ export function Invoices() {
       formDataToSend.append('paymentStatus', formData.paymentStatus);
       formDataToSend.append('lineItems', JSON.stringify(lineItems));
 
+      // Add customer ID for sales invoices
+      if (selectedCustomerId) {
+        formDataToSend.append('customerId', selectedCustomerId);
+      }
+
       if (selectedFile) {
         formDataToSend.append('attachment', selectedFile);
       }
@@ -217,6 +249,7 @@ export function Invoices() {
 
       await fetchInvoices();
       setUploadDialogOpen(false);
+      setCreateSalesDialogOpen(false);
       resetForm();
     } catch (error) {
       console.error('Error saving invoice:', error);
@@ -236,8 +269,9 @@ export function Invoices() {
       currency: 'EUR',
       paymentStatus: 'UNPAID',
     });
-    setLineItems([{ description: '', quantity: 1, unitPrice: 0, vatRate: 0.21, reverseCharge: false }]);
+    setLineItems([{ description: '', quantity: 1, unitPrice: 0, vatRate: 0.21, deductibilityPercentage: 100, reverseCharge: false }]);
     setSelectedFile(null);
+    setSelectedCustomerId('');
     setEditingInvoice(null);
 
     // Clean up preview URL
@@ -246,6 +280,46 @@ export function Invoices() {
       setFilePreviewUrl(null);
     }
     setNumPages(null);
+  };
+
+  const handleCreateSalesInvoice = () => {
+    resetForm();
+    setFormData(prev => ({ ...prev, type: 'SALES' }));
+    setCreateSalesDialogOpen(true);
+  };
+
+  const handleCustomerChange = (customerId: string) => {
+    setSelectedCustomerId(customerId);
+    const customer = customers.find(c => c.id === customerId);
+    if (customer) {
+      setFormData(prev => ({ ...prev, counterparty: customer.name }));
+    } else {
+      setFormData(prev => ({ ...prev, counterparty: '' }));
+    }
+  };
+
+  const handleDownloadPdf = async (e: React.MouseEvent, invoice: Invoice) => {
+    e.stopPropagation(); // Prevent card click event
+
+    try {
+      const response = await axios.get(`/api/invoices/${invoice.id}/pdf`, {
+        responseType: 'blob',
+      });
+
+      // Create a blob URL and trigger download
+      const blob = new Blob([response.data], { type: 'application/pdf' });
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `invoice-${invoice.invoiceNumber}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error('Error downloading PDF:', error);
+      alert('Failed to generate PDF. Please make sure you have completed company onboarding.');
+    }
   };
 
   const calculateLineItemTotal = (item: InvoiceLineItem) => {
@@ -264,9 +338,17 @@ export function Invoices() {
     return invoice.lineItems.reduce((sum, item) => sum + (item.total || 0), 0);
   };
 
-  const filteredInvoices = filterType === 'ALL'
-    ? invoices
-    : invoices.filter(inv => inv.type === filterType);
+  const filteredInvoices = invoices
+    .filter(inv => filterType === 'ALL' || inv.type === filterType)
+    .filter(inv => {
+      if (!searchTerm) return true;
+      const searchLower = searchTerm.toLowerCase();
+      return (
+        inv.invoiceNumber.toLowerCase().includes(searchLower) ||
+        inv.counterparty.toLowerCase().includes(searchLower) ||
+        inv.currency.toLowerCase().includes(searchLower)
+      );
+    });
 
   const getPaymentStatusColor = (status: string) => {
     switch (status) {
@@ -287,37 +369,38 @@ export function Invoices() {
             <p className="mt-1 text-gray-600">Manage your sales and purchase invoices</p>
           </div>
 
-          <Dialog open={uploadDialogOpen} onOpenChange={setUploadDialogOpen}>
-            <DialogTrigger asChild>
-              <Button>Upload Invoice</Button>
-            </DialogTrigger>
-            <DialogContent className="max-w-7xl h-[90vh] flex flex-col p-0">
-              <div className="p-6 border-b">
-                <DialogHeader>
-                  <DialogTitle>{editingInvoice ? 'Edit Invoice' : 'Upload New Invoice'}</DialogTitle>
-                  <DialogDescription>
-                    {editingInvoice ? 'Update the invoice details.' : 'Fill in the invoice details and upload the document.'}
-                  </DialogDescription>
-                </DialogHeader>
-              </div>
-
-              <form onSubmit={handleSubmit} className="flex flex-col flex-1 min-h-0">
-                {/* File upload section - always visible */}
-                <div className="space-y-2 p-4 border-b">
-                  <Label.Root htmlFor="attachment">
-                    Attachment (PDF, JPG, PNG - max 10MB) {editingInvoice && '- Optional'}
-                  </Label.Root>
-                  <input
-                    id="attachment"
-                    type="file"
-                    accept=".pdf,.jpg,.jpeg,.png"
-                    onChange={handleFileChange}
-                    className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
-                  {selectedFile && (
-                    <p className="text-sm text-slate-600">Selected: {selectedFile.name}</p>
-                  )}
+          <div className="flex gap-2">
+            <Dialog open={uploadDialogOpen} onOpenChange={setUploadDialogOpen}>
+              <DialogTrigger asChild>
+                <Button variant="outline">Upload Invoice</Button>
+              </DialogTrigger>
+              <DialogContent className="max-w-7xl h-[90vh] flex flex-col p-0">
+                <div className="p-6 border-b">
+                  <DialogHeader>
+                    <DialogTitle>{editingInvoice ? 'Edit Invoice' : 'Upload Invoice'}</DialogTitle>
+                    <DialogDescription>
+                      {editingInvoice ? 'Update the invoice details.' : 'Upload and record an invoice.'}
+                    </DialogDescription>
+                  </DialogHeader>
                 </div>
+
+                <form onSubmit={handleSubmit} className="flex flex-col flex-1 min-h-0">
+                  {/* File upload section - always visible */}
+                  <div className="space-y-2 p-4 border-b">
+                    <Label.Root htmlFor="attachment">
+                      Attachment (PDF, JPG, PNG - max 10MB) {editingInvoice && '- Optional'}
+                    </Label.Root>
+                    <input
+                      id="attachment"
+                      type="file"
+                      accept=".pdf,.jpg,.jpeg,.png"
+                      onChange={handleFileChange}
+                      className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                    {selectedFile && (
+                      <p className="text-sm text-slate-600">Selected: {selectedFile.name}</p>
+                    )}
+                  </div>
 
                 {/* Main content area */}
                 {filePreviewUrl && selectedFile ? (
@@ -545,6 +628,27 @@ export function Invoices() {
                               <option value="0.21">21% VAT</option>
                             </select>
                           </div>
+
+                          {formData.type === 'PURCHASE' && (
+                            <div className="space-y-1">
+                              <Label.Root className="text-xs text-slate-600">
+                                Deductibility Percentage (%)
+                              </Label.Root>
+                              <input
+                                type="number"
+                                placeholder="100"
+                                value={item.deductibilityPercentage ?? 100}
+                                onChange={(e) => handleLineItemChange(index, 'deductibilityPercentage', e.target.value)}
+                                className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"
+                                min="0"
+                                max="100"
+                                step="1"
+                              />
+                              <p className="text-xs text-slate-500">
+                                Percentage of this expense that is deductible (e.g., 80 for a dinner)
+                              </p>
+                            </div>
+                          )}
 
                           <div className="space-y-1">
                             <div className="flex items-center gap-2">
@@ -783,6 +887,27 @@ export function Invoices() {
                             </select>
                           </div>
 
+                          {formData.type === 'PURCHASE' && (
+                            <div className="space-y-1">
+                              <Label.Root className="text-xs text-slate-600">
+                                Deductibility Percentage (%)
+                              </Label.Root>
+                              <input
+                                type="number"
+                                placeholder="100"
+                                value={item.deductibilityPercentage ?? 100}
+                                onChange={(e) => handleLineItemChange(index, 'deductibilityPercentage', e.target.value)}
+                                className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"
+                                min="0"
+                                max="100"
+                                step="1"
+                              />
+                              <p className="text-xs text-slate-500">
+                                Percentage of this expense that is deductible (e.g., 80 for a dinner)
+                              </p>
+                            </div>
+                          )}
+
                           <div className="space-y-1">
                             <div className="flex items-center gap-2">
                               <input
@@ -854,30 +979,286 @@ export function Invoices() {
               </form>
             </DialogContent>
           </Dialog>
-        </div>
 
-        <div className="mb-6 flex gap-2">
-          <Button
-            variant={filterType === 'ALL' ? 'default' : 'outline'}
-            onClick={() => setFilterType('ALL')}
-            size="sm"
-          >
-            All
-          </Button>
-          <Button
-            variant={filterType === 'SALES' ? 'default' : 'outline'}
-            onClick={() => setFilterType('SALES')}
-            size="sm"
-          >
-            Sales
-          </Button>
-          <Button
-            variant={filterType === 'PURCHASE' ? 'default' : 'outline'}
-            onClick={() => setFilterType('PURCHASE')}
-            size="sm"
-          >
-            Purchases
-          </Button>
+          <Dialog open={createSalesDialogOpen} onOpenChange={setCreateSalesDialogOpen}>
+            <DialogTrigger asChild>
+              <Button onClick={handleCreateSalesInvoice}>Create Sales Invoice</Button>
+            </DialogTrigger>
+            <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+              <DialogHeader>
+                <DialogTitle>Create Sales Invoice</DialogTitle>
+                <DialogDescription>
+                  Create a new sales invoice to send to your customer
+                </DialogDescription>
+              </DialogHeader>
+
+              <form onSubmit={handleSubmit} className="space-y-6 mt-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div className="space-y-4">
+                    <div className="space-y-2">
+                      <Label.Root htmlFor="sales-customer">Select Customer</Label.Root>
+                      <select
+                        id="sales-customer"
+                        value={selectedCustomerId}
+                        onChange={(e) => handleCustomerChange(e.target.value)}
+                        className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        required
+                      >
+                        <option value="">Select a customer...</option>
+                        {customers.map((customer) => (
+                          <option key={customer.id} value={customer.id}>
+                            {customer.name} {customer.type === 'BUSINESS' && `(${customer.kvk})`}
+                          </option>
+                        ))}
+                      </select>
+                      {customers.length === 0 && (
+                        <p className="text-xs text-slate-500">
+                          No customers yet.{' '}
+                          <a href="/customers" target="_blank" className="text-blue-600 hover:underline">
+                            Create one first
+                          </a>
+                        </p>
+                      )}
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label.Root htmlFor="sales-invoiceNumber">Invoice Number</Label.Root>
+                      <input
+                        id="sales-invoiceNumber"
+                        name="invoiceNumber"
+                        type="text"
+                        required
+                        value={formData.invoiceNumber}
+                        onChange={handleFormChange}
+                        className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        placeholder="INV-2024-001"
+                      />
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label.Root htmlFor="sales-invoiceDate">Invoice Date</Label.Root>
+                      <input
+                        id="sales-invoiceDate"
+                        name="invoiceDate"
+                        type="date"
+                        required
+                        value={formData.invoiceDate}
+                        onChange={handleFormChange}
+                        className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="space-y-4">
+                    <div className="space-y-2">
+                      <Label.Root htmlFor="sales-paymentTermDays">Payment Terms (days)</Label.Root>
+                      <input
+                        id="sales-paymentTermDays"
+                        name="paymentTermDays"
+                        type="number"
+                        required
+                        min="0"
+                        value={formData.paymentTermDays}
+                        onChange={handleFormChange}
+                        className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        placeholder="30"
+                      />
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label.Root htmlFor="sales-currency">Currency</Label.Root>
+                      <input
+                        id="sales-currency"
+                        name="currency"
+                        type="text"
+                        required
+                        value={formData.currency}
+                        onChange={handleFormChange}
+                        className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label.Root htmlFor="sales-paymentStatus">Payment Status</Label.Root>
+                      <select
+                        id="sales-paymentStatus"
+                        name="paymentStatus"
+                        required
+                        value={formData.paymentStatus}
+                        onChange={handleFormChange}
+                        className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      >
+                        <option value="UNPAID">Unpaid</option>
+                        <option value="PAID">Paid</option>
+                        <option value="PARTIALLY_PAID">Partially Paid</option>
+                        <option value="OVERDUE">Overdue</option>
+                      </select>
+                    </div>
+                  </div>
+                </div>
+
+                <Separator />
+
+                <div>
+                  <div className="flex items-center justify-between mb-4">
+                    <Label.Root className="text-lg font-semibold">Line Items</Label.Root>
+                    <Button type="button" onClick={addLineItem} size="sm" variant="outline">
+                      Add Line Item
+                    </Button>
+                  </div>
+
+                  <div className="space-y-4">
+                    {lineItems.map((item, index) => (
+                      <div key={index} className="p-4 border border-slate-200 rounded-lg space-y-3 bg-slate-50">
+                        <div className="flex items-center justify-between">
+                          <span className="text-sm font-medium text-slate-700">Item {index + 1}</span>
+                          {lineItems.length > 1 && (
+                            <button
+                              type="button"
+                              onClick={() => removeLineItem(index)}
+                              className="text-red-600 hover:text-red-800 text-sm"
+                            >
+                              Remove
+                            </button>
+                          )}
+                        </div>
+
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                          <div className="space-y-1 md:col-span-2">
+                            <Label.Root className="text-xs text-slate-600">Description</Label.Root>
+                            <input
+                              type="text"
+                              placeholder="Item description"
+                              value={item.description}
+                              onChange={(e) => handleLineItemChange(index, 'description', e.target.value)}
+                              className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"
+                              required
+                            />
+                          </div>
+
+                          <div className="space-y-1">
+                            <Label.Root className="text-xs text-slate-600">Quantity</Label.Root>
+                            <input
+                              type="number"
+                              step="0.01"
+                              placeholder="1"
+                              value={item.quantity}
+                              onChange={(e) => handleLineItemChange(index, 'quantity', e.target.value)}
+                              className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"
+                              required
+                            />
+                          </div>
+
+                          <div className="space-y-1">
+                            <Label.Root className="text-xs text-slate-600">Unit Price (€)</Label.Root>
+                            <input
+                              type="number"
+                              step="0.01"
+                              placeholder="0.00"
+                              value={item.unitPrice}
+                              onChange={(e) => handleLineItemChange(index, 'unitPrice', e.target.value)}
+                              className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"
+                              required
+                            />
+                          </div>
+
+                          <div className="space-y-1">
+                            <Label.Root className="text-xs text-slate-600">VAT Rate (%)</Label.Root>
+                            <select
+                              value={item.vatRate}
+                              onChange={(e) => handleLineItemChange(index, 'vatRate', e.target.value)}
+                              className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"
+                              required
+                            >
+                              <option value="0">0%</option>
+                              <option value="0.09">9%</option>
+                              <option value="0.21">21%</option>
+                            </select>
+                          </div>
+
+                          <div className="space-y-1">
+                            <span className="text-xs text-slate-600">Total</span>
+                            <div className="flex items-center">
+                              <span className="text-sm font-medium text-slate-700">
+                                €{calculateLineItemTotal(item).toFixed(2)}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="flex justify-end gap-2 pt-4">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => {
+                      setCreateSalesDialogOpen(false);
+                      resetForm();
+                    }}
+                    disabled={isSubmitting}
+                  >
+                    Cancel
+                  </Button>
+                  <Button type="submit" disabled={isSubmitting}>
+                    {isSubmitting ? 'Creating...' : 'Create Invoice'}
+                  </Button>
+                </div>
+              </form>
+            </DialogContent>
+          </Dialog>
+        </div>
+      </div>
+
+        <div className="mb-6 space-y-4">
+          <div className="flex gap-2">
+            <Button
+              variant={filterType === 'ALL' ? 'default' : 'outline'}
+              onClick={() => setFilterType('ALL')}
+              size="sm"
+            >
+              All
+            </Button>
+            <Button
+              variant={filterType === 'SALES' ? 'default' : 'outline'}
+              onClick={() => setFilterType('SALES')}
+              size="sm"
+            >
+              Sales
+            </Button>
+            <Button
+              variant={filterType === 'PURCHASE' ? 'default' : 'outline'}
+              onClick={() => setFilterType('PURCHASE')}
+              size="sm"
+            >
+              Purchases
+            </Button>
+          </div>
+
+          <div className="relative">
+            <input
+              type="text"
+              placeholder="Search invoices by number, customer, or currency..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="w-full px-4 py-2 pl-10 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+            <svg
+              className="absolute left-3 top-2.5 h-5 w-5 text-gray-400"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+              />
+            </svg>
+          </div>
         </div>
 
         {isLoading ? (
@@ -941,6 +1322,32 @@ export function Invoices() {
                       </p>
                     </div>
                   </div>
+                  {invoice.type === 'SALES' && (
+                    <div className="mt-4 pt-4 border-t border-gray-200">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={(e) => handleDownloadPdf(e, invoice)}
+                        className="flex items-center gap-2"
+                      >
+                        <svg
+                          xmlns="http://www.w3.org/2000/svg"
+                          fill="none"
+                          viewBox="0 0 24 24"
+                          strokeWidth={1.5}
+                          stroke="currentColor"
+                          className="w-4 h-4"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3"
+                          />
+                        </svg>
+                        Download PDF
+                      </Button>
+                    </div>
+                  )}
                 </CardContent>
               </Card>
             ))}

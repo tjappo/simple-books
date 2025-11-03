@@ -624,8 +624,12 @@ export class VatDeclarationService {
                         continue;
                     }
 
-                    // Add the VAT amount to the total (will be rounded UP at the end)
-                    deductibleVat = deductibleVat.plus(line.vatAmount);
+                    // Apply deductibility percentage to the VAT amount
+                    const deductibilityMultiplier = new Decimal(line.deductibilityPercentage || 100).dividedBy(100);
+                    const adjustedVatAmount = new Decimal(line.vatAmount).times(deductibilityMultiplier);
+
+                    // Add the adjusted VAT amount to the total (will be rounded UP at the end)
+                    deductibleVat = deductibleVat.plus(adjustedVatAmount);
                 }
             }
         }

@@ -5,11 +5,6 @@ import * as Label from '@radix-ui/react-label';
 import axios from 'axios';
 import { DateTime } from 'luxon';
 
-interface VatBox {
-  base?: number;
-  vat?: number;
-}
-
 interface VatDeclarationData {
   id?: string;
   period: string;
@@ -89,7 +84,7 @@ export function VatDeclaration() {
     try {
       const { startDate, endDate, period } = calculatePeriod();
 
-      const response = await axios.post('/api/api/vat-declaration/calculate', {
+      const response = await axios.post('/api/vat-declaration/calculate', {
         startDate,
         endDate,
         periodType,
@@ -105,7 +100,7 @@ export function VatDeclaration() {
       if (errorMessage.includes('final')) {
         try {
           const { period } = calculatePeriod();
-          const existingResponse = await axios.get(`/api/api/vat-declaration/period/${period}`);
+          const existingResponse = await axios.get(`/api/vat-declaration/period/${period}`);
           setDeclaration(existingResponse.data);
         } catch (fetchErr) {
           // If fetch also fails, keep the original error
@@ -127,7 +122,7 @@ export function VatDeclaration() {
     setShowConfirmModal(false);
 
     try {
-      const response = await axios.post('/api/api/vat-declaration/finalize', declaration);
+      const response = await axios.post('/api/vat-declaration/finalize', declaration);
       setDeclaration(response.data);
       setError(null); // Clear any existing errors on success
     } catch (err: any) {
@@ -143,7 +138,7 @@ export function VatDeclaration() {
     if (!declaration || !declaration.id) return;
 
     try {
-      const response = await axios.get(`/api/api/vat-declaration/${declaration.id}/pdf`, {
+      const response = await axios.get(`/api/vat-declaration/${declaration.id}/pdf`, {
         responseType: 'blob',
       });
 
@@ -169,10 +164,10 @@ export function VatDeclaration() {
       let response;
       if (declaration.id) {
         // For finalized declarations, use the ID-based endpoint
-        response = await axios.get(`/api/api/vat-declaration/${declaration.id}/invoices/${boxId}`);
+        response = await axios.get(`/api/vat-declaration/${declaration.id}/invoices/${boxId}`);
       } else {
         // For draft declarations, use the period-based endpoint
-        response = await axios.post(`/api/api/vat-declaration/invoices/${boxId}`, {
+        response = await axios.post(`/api/vat-declaration/invoices/${boxId}`, {
           startDate: declaration.startDate,
           endDate: declaration.endDate,
         });

@@ -6,6 +6,7 @@ import Decimal from 'decimal.js';
 export interface CreateInvoiceDto {
   type: InvoiceType;
   counterparty: string;
+  customerId?: string; // Optional customer link for sales invoices
   invoiceNumber: string;
   issueDate: string;
   dueDate: string;
@@ -18,6 +19,7 @@ export interface CreateInvoiceDto {
     quantity: number;
     unitPrice: number;
     vatRate: number;
+    deductibilityPercentage?: number;
     reverseCharge?: boolean;
     reverseChargeLocation?: 'EU' | 'NON_EU';
   }[];
@@ -38,6 +40,7 @@ export interface UpdateInvoiceDto {
     quantity: number;
     unitPrice: number;
     vatRate: number;
+    deductibilityPercentage?: number;
     reverseCharge?: boolean;
     reverseChargeLocation?: 'EU' | 'NON_EU';
   }[];
@@ -105,12 +108,13 @@ export class InvoicesService {
         vatAmount: vatAmount.toDecimalPlaces(2, Decimal.ROUND_HALF_UP).toNumber(),
         total: total.toDecimalPlaces(2, Decimal.ROUND_HALF_UP).toNumber(),
         vatCategory,
+        deductibilityPercentage: item.deductibilityPercentage ?? 100,
         reverseCharge: item.reverseCharge || false,
         reverseChargeLocation: item.reverseChargeLocation || null,
       };
     });
 
-    return this.invoiceRepository.create({
+    const createData: any = {
       user: { connect: { id: userId } },
       ...invoiceData,
       issueDate: new Date(invoiceData.issueDate),
@@ -118,22 +122,33 @@ export class InvoicesService {
       lineItems: {
         create: lineItemsWithTotals,
       },
-    });
+    };
+
+    // Link to customer if provided
+    if (data.customerId) {
+      createData.customer = { connect: { id: data.customerId } };
+      delete createData.customerId;
+    }
+
+    return this.invoiceRepository.create(createData);
   }
 
   async findAll(userId: string) {
     return this.invoiceRepository.findMany(
       { userId },
-      { lineItems: true },
+      { lineItems: true, customer: true },
       { issueDate: 'desc' },
     );
   }
 
   async findOne(userId: string, id: string) {
-    return this.invoiceRepository.findFirst({
-      id,
-      userId,
-    });
+    return this.invoiceRepository.findFirst(
+      {
+        id,
+        userId,
+      },
+      { lineItems: true, customer: true },
+    );
   }
 
   async update(userId: string, id: string, data: UpdateInvoiceDto) {
@@ -166,6 +181,7 @@ export class InvoicesService {
           vatAmount: vatAmount.toDecimalPlaces(2, Decimal.ROUND_HALF_UP).toNumber(),
           total: total.toDecimalPlaces(2, Decimal.ROUND_HALF_UP).toNumber(),
           vatCategory,
+          deductibilityPercentage: item.deductibilityPercentage ?? 100,
           reverseCharge: item.reverseCharge || false,
           reverseChargeLocation: item.reverseChargeLocation || null,
         };
